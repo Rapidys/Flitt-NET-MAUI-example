@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage x:Class="TestApp.Pages.PaymentPage"
+             xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             Title="Google Pay Test">
+    <ScrollView>
+        <StackLayout Padding="20" Spacing="20">
+            
+            <Label Text="Google Pay Test" 
+                   FontSize="24" 
+                   FontAttributes="Bold" 
+                   HorizontalOptions="Center" />
+            
+            <Frame BackgroundColor="LightGray" 
+                   Padding="20" 
+                   CornerRadius="10">
+                <StackLayout>
+                    <Label Text="Test Amount: ₾10.50" 
+                           FontSize="18" 
+                           FontAttributes="Bold" />
+                    <Label Text="Test Payment" 
+                           FontSize="14" 
+                           TextColor="Gray" />
+                </StackLayout>
+            </Frame>
+            
+            <Button x:Name="GooglePayButton"
+                    Text="Pay with Google Pay"
+                    BackgroundColor="#4285F4"
+                    TextColor="White"
+                    FontSize="16"
+                    Clicked="OnGooglePayClicked" />
+            
+            
+            <ActivityIndicator x:Name="LoadingIndicator"
+                              IsVisible="False"
+                              IsRunning="True"
+                              Color="Blue" />
+            
+            <Label x:Name="ResultLabel"
+                   Text=""
+                   FontSize="14"
+                   TextColor="Black"
+                   HorizontalOptions="Center" />
+                   
+        </StackLayout>
+    </ScrollView>
+</ContentPage>
