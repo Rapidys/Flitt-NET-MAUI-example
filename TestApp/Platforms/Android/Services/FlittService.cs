@@ -14,6 +14,7 @@ namespace TestApp.Services
         private readonly int _merchantId;
         private readonly string _apiHost;
         private readonly HttpClient _httpClient;
+        private const string URL_CALLBACK = "https://callback";
 
         public FlittService(int merchantId, string apiHost = "https://sandbox.pay.flitt.dev")
         {
@@ -22,6 +23,100 @@ namespace TestApp.Services
             _httpClient = new HttpClient();
         }
 
+        // Create order token from Order object (matching Java SDK)
+        public async Task<string> CreateOrderTokenAsync(Order order)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"Creating order token for order: {order.Id}");
+
+                var request = new Dictionary<string, object>
+                {
+                    ["order_id"] = order.Id,
+                    ["merchant_id"] = _merchantId.ToString(),
+                    ["order_desc"] = order.Description,
+                    ["amount"] = order.Amount.ToString(),
+                    ["currency"] = order.CurrencyCode
+                };
+
+                // Add optional fields if they're set
+                if (!string.IsNullOrEmpty(order.ProductId))
+                    request["product_id"] = order.ProductId;
+
+                if (!string.IsNullOrEmpty(order.PaymentSystems))
+                    request["payment_systems"] = order.PaymentSystems;
+
+                if (!string.IsNullOrEmpty(order.DefaultPaymentSystem))
+                    request["default_payment_system"] = order.DefaultPaymentSystem;
+
+                if (order.Lifetime != -1)
+                    request["lifetime"] = order.Lifetime;
+
+                if (string.IsNullOrEmpty(order.MerchantData))
+                    request["merchant_data"] = "[]";
+                else
+                    request["merchant_data"] = order.MerchantData;
+
+                if (!string.IsNullOrEmpty(order.Version))
+                    request["version"] = order.Version;
+
+                if (!string.IsNullOrEmpty(order.ServerCallbackUrl))
+                    request["server_callback_url"] = order.ServerCallbackUrl;
+
+                if (!string.IsNullOrEmpty(order.ReservationData))
+                    request["reservation_data"] = order.ReservationData;
+
+                if (order.Language.HasValue)
+                    request["lang"] = order.Language.Value.ToString();
+
+                request["preauth"] = order.Preauth ? "Y" : "N";
+                request["required_rectoken"] = order.RequiredRecToken ? "Y" : "N";
+                request["verification"] = order.VerificationEnabled ? "Y" : "N";
+                request["verification_type"] = order.VerificationType.ToString();
+                request["response_url"] = URL_CALLBACK;
+                // Add custom arguments
+                foreach (var arg in order.Arguments)
+                {
+                    request[arg.Key] = arg.Value;
+                }
+
+                request["delayed"] = order.Delayed ? "Y" : "N";
+
+                var response = await CallApiAsync("/api/checkout/token", request);
+
+                if (response.ContainsKey("token"))
+                {
+                    var token = response["token"].ToString();
+                    System.Diagnostics.Debug.WriteLine($"Created token: {token}");
+                    return token;
+                }
+
+                throw new Exception("No token returned from API");
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to create order token: {ex.Message}", ex);
+            }
+        }
+
+        // Get Google Pay config from Order (like Java SDK)
+        public async Task<FlittGooglePayConfig> GetGooglePayConfigAsync(Order order)
+        {
+            try
+            {
+                // First create the order and get a token
+                var token = await CreateOrderTokenAsync(order);
+
+                // Then get Google Pay config using the token
+                return await GetGooglePayConfigAsync(token);
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to get Google Pay config for order: {ex.Message}", ex);
+            }
+        }
+
+        // Original token-based method
         public async Task<FlittGooglePayConfig> GetGooglePayConfigAsync(string token)
         {
             try
@@ -33,7 +128,7 @@ namespace TestApp.Services
                 };
 
                 var response = await CallApiAsync("/api/checkout/ajax/mobile_pay", request);
-                
+
                 if (response.ContainsKey("error_message"))
                 {
                     throw new Exception($"API Error: {response["error_message"]}");
@@ -63,7 +158,7 @@ namespace TestApp.Services
                     PaymentSystem = paymentSystem,
                     GooglePayData = googlePayData.ToString(),
                     Token = token,
-                    CallbackUrl = "https://callback"
+                    CallbackUrl = URL_CALLBACK
                 };
             }
             catch (Exception ex)
@@ -72,7 +167,26 @@ namespace TestApp.Services
             }
         }
 
-        public async Task<Receipt> ProcessGooglePaymentAsync(string token, string paymentSystem, string paymentData, string email = null)
+        // Process Google Pay payment from Order (like Java SDK)
+        public async Task<Receipt> ProcessGooglePaymentAsync(Order order, string paymentSystem, string paymentData)
+        {
+            try
+            {
+                // First create the order and get a token
+                var token = await CreateOrderTokenAsync(order);
+
+                // Then process the payment using the token
+                return await ProcessGooglePaymentAsync(token, paymentSystem, paymentData, order.Email);
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to process Google Pay payment for order: {ex.Message}", ex);
+            }
+        }
+
+        // Original token-based method
+        public async Task<Receipt> ProcessGooglePaymentAsync(string token, string paymentSystem, string paymentData,
+            string email = null)
         {
             try
             {
@@ -89,9 +203,9 @@ namespace TestApp.Services
                 }
 
                 var checkoutResponse = await CallApiAsync("/api/checkout/ajax", request);
-                
+
                 var url = checkoutResponse["url"].ToString();
-                var callbackUrl = "https://callback";
+                var callbackUrl = URL_CALLBACK;
 
                 if (url.StartsWith(callbackUrl))
                 {
@@ -101,15 +215,16 @@ namespace TestApp.Services
                 else
                 {
                     // 3DS required - OPEN WEBVIEW HERE using FlittWebViewHandler
-                    System.Diagnostics.Debug.WriteLine("3DS authentication required - opening WebView with FlittWebViewHandler");
-                    
+                    System.Diagnostics.Debug.WriteLine(
+                        "3DS authentication required - opening WebView with FlittWebViewHandler");
+
                     // Get the 3DS form data
                     var sendData = JObject.Parse(checkoutResponse["send_data"].ToString());
-                    
+
                     // Prepare form data for 3DS POST
                     var formData = $"MD={URLEncoder.Encode(sendData["MD"].ToString(), "UTF-8")}&" +
-                                  $"PaReq={URLEncoder.Encode(sendData["PaReq"].ToString(), "UTF-8")}&" +
-                                  $"TermUrl={URLEncoder.Encode(sendData["TermUrl"].ToString(), "UTF-8")}";
+                                   $"PaReq={URLEncoder.Encode(sendData["PaReq"].ToString(), "UTF-8")}&" +
+                                   $"TermUrl={URLEncoder.Encode(sendData["TermUrl"].ToString(), "UTF-8")}";
 
                     System.Diagnostics.Debug.WriteLine($"3DS Form Data: {formData}");
                     System.Diagnostics.Debug.WriteLine($"3DS URL: {url}");
@@ -143,7 +258,7 @@ namespace TestApp.Services
                     if (webViewResult.Success)
                     {
                         System.Diagnostics.Debug.WriteLine("3DS authentication completed successfully");
-                        
+
                         if (webViewResult.Response != null)
                         {
                             // Parse order data from 3DS response
@@ -154,7 +269,7 @@ namespace TestApp.Services
                                 return ParseOrderFromResponse(orderData, null);
                             }
                         }
-                        
+
                         // If no order data in response, fetch it from the API
                         System.Diagnostics.Debug.WriteLine("No order data in 3DS response, fetching from API");
                         return await GetOrderAsync(token);
@@ -178,8 +293,10 @@ namespace TestApp.Services
             {
                 return string.Join("; ", cookies);
             }
+
             return null;
         }
+
         private Receipt ParseOrderFromResponse(JObject orderData, string responseUrl)
         {
             return new Receipt
@@ -199,7 +316,6 @@ namespace TestApp.Services
             };
         }
 
-        
         public async Task<Receipt> GetOrderAsync(string token)
         {
             try
@@ -260,11 +376,12 @@ namespace TestApp.Services
 
                 var result = responseData.ToObject<Dictionary<string, object>>();
 
-                if (result.ContainsKey("response_status") && 
+                if (result.ContainsKey("response_status") &&
                     result["response_status"].ToString() != "success")
                 {
-                    var errorMessage = result.ContainsKey("error_message") ? 
-                        result["error_message"].ToString() : "Unknown error";
+                    var errorMessage = result.ContainsKey("error_message")
+                        ? result["error_message"].ToString()
+                        : "Unknown error";
                     throw new Exception(errorMessage);
                 }
 

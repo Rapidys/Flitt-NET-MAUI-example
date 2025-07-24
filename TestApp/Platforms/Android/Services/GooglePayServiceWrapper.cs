@@ -22,12 +22,31 @@ namespace TestApp.Services
             return await _googlePayService.IsReadyToPayAsync();
         }
 
+        // Original token-based method
         public async Task<GooglePayResult> InitializeGooglePayFromTokenAsync(string token)
         {
             if (_googlePayService == null)
                 return new GooglePayResult { Success = false, Error = "Google Pay service not initialized" };
 
             return await _googlePayService.InitializeGooglePayFromTokenAsync(token);
+        }
+
+        // NEW: Order-based method
+        public async Task<GooglePayResult> InitializeGooglePayAsync(Order order)
+        {
+            if (_googlePayService == null)
+                return new GooglePayResult { Success = false, Error = "Google Pay service not initialized" };
+
+            return await _googlePayService.InitializeGooglePayAsync(order);
+        }
+
+        // NEW: Create order token
+        public async Task<string> CreateOrderTokenAsync(Order order)
+        {
+            if (_googlePayService == null)
+                throw new Exception("Google Pay service not initialized");
+
+            return await _googlePayService.CreateOrderTokenAsync(order);
         }
     }
 }
