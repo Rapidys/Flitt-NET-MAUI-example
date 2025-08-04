@@ -2,47 +2,68 @@
 <ContentPage x:Class="TestApp.Pages.PaymentPage"
              xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             Title="Google Pay Test">
-    <ScrollView>
-        <StackLayout Padding="20" Spacing="20">
-            
-            <Label Text="Google Pay Test" 
-                   FontSize="24" 
-                   FontAttributes="Bold" 
+             Title="Payment">
+    
+    <Grid>
+        <!-- Main payment UI -->
+        <StackLayout x:Name="PaymentUI" Padding="20">
+            <Label x:Name="ResultLabel" 
+                   Text="Welcome to Google Pay Test" 
+                   FontSize="18" 
                    HorizontalOptions="Center" />
-            
-            <Frame BackgroundColor="LightGray" 
-                   Padding="20" 
-                   CornerRadius="10">
-                <StackLayout>
-                    <Label Text="Test Amount: ₾10.50" 
-                           FontSize="18" 
-                           FontAttributes="Bold" />
-                    <Label Text="Test Payment" 
-                           FontSize="14" 
-                           TextColor="Gray" />
-                </StackLayout>
-            </Frame>
             
             <Button x:Name="GooglePayButton"
                     Text="Pay with Google Pay"
                     BackgroundColor="#4285F4"
                     TextColor="White"
-                    FontSize="16"
-                    Clicked="OnGooglePayClicked" />
-            
+                    Clicked="OnGooglePayClicked"
+                    Margin="0,20" />
             
             <ActivityIndicator x:Name="LoadingIndicator"
                               IsVisible="False"
                               IsRunning="True"
-                              Color="Blue" />
-            
-            <Label x:Name="ResultLabel"
-                   Text=""
-                   FontSize="14"
-                   TextColor="Black"
-                   HorizontalOptions="Center" />
-                   
+                              Color="#4285F4" />
         </StackLayout>
-    </ScrollView>
+        
+        <!-- 3DS WebView overlay (initially hidden) -->
+        <Grid x:Name="WebViewOverlay" IsVisible="False" BackgroundColor="White">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            
+            <!-- Header -->
+            <Frame Grid.Row="0"
+                   BackgroundColor="#4285F4"
+                   Padding="15"
+                   Margin="0"
+                   CornerRadius="0">
+                <StackLayout Orientation="Horizontal">
+                    <Label Text="🔒" FontSize="18" VerticalOptions="Center" TextColor="White" />
+                    <Label Text="Secure Payment Authentication"
+                           FontSize="16"
+                           FontAttributes="Bold"
+                           VerticalOptions="Center"
+                           TextColor="White"
+                           HorizontalOptions="FillAndExpand" />
+                    <Button Text="Cancel"
+                            FontSize="12"
+                            BackgroundColor="Transparent"
+                            TextColor="White"
+                            BorderColor="White"
+                            BorderWidth="1"
+                            CornerRadius="15"
+                            Padding="10,5"
+                            Clicked="OnCancelWebViewClicked" />
+                </StackLayout>
+            </Frame>
+            
+            <!-- WebView with proper settings -->
+            <WebView x:Name="PaymentWebView"
+                     Grid.Row="1"
+                     BackgroundColor="White"
+                     Navigating="OnWebViewNavigating"
+                     Navigated="OnWebViewNavigated" />
+        </Grid>
+    </Grid>
 </ContentPage>

@@ -1,4 +1,3 @@
-// Location: TestApp/Services/FlittWebViewHandler.cs (Simplified)
 using Microsoft.Maui.Controls;
 using TestApp.Services;
 using Newtonsoft.Json.Linq;
@@ -8,50 +7,92 @@ namespace TestApp.Services
 {
     public class FlittWebViewHandler
     {
-        private const string URL_START_PATTERN = "http://secure-redirect.flitt.com/submit/#";
-        
         public async Task<PaymentResult> ShowWebViewAsync(PayConfirmation confirmation)
         {
-            var tcs = new TaskCompletionSource<PaymentResult>();
-
-            // Show WebView on the UI thread using MAUI's simple approach
-            await Microsoft.Maui.Controls.Application.Current.Dispatcher.DispatchAsync(async () =>
+            System.Diagnostics.Debug.WriteLine("=== FlittWebViewHandler.ShowWebViewAsync called ===");
+            
+            try
             {
-                try
+                // Get the current PaymentPage instance
+                var currentPage = GetCurrentPaymentPage();
+                
+                if (currentPage == null)
                 {
-                    // Create and show the simple WebView page
-                    var webViewPage = new SimpleWebView3DSPage(confirmation, tcs);
-                    
-                    // Navigate to the WebView page
-                    var mainPage = Application.Current.MainPage;
-                    if (mainPage is NavigationPage navPage)
-                    {
-                        await navPage.PushAsync(webViewPage);
-                    }
-                    else if (mainPage is Shell shell)
-                    {
-                        await shell.Navigation.PushAsync(webViewPage);
-                    }
-                    else
-                    {
-                        await mainPage.Navigation.PushAsync(webViewPage);
-                    }
-                }
-                catch (System.Exception ex)
-                {
-                    tcs.SetResult(new PaymentResult 
+                    System.Diagnostics.Debug.WriteLine("ERROR: Could not find PaymentPage");
+                    return new PaymentResult 
                     { 
                         Success = false, 
-                        Error = $"Failed to show WebView: {ex.Message}" 
-                    });
+                        Error = "Could not find PaymentPage to show WebView" 
+                    };
                 }
-            });
-
-            return await tcs.Task;
+                
+                System.Diagnostics.Debug.WriteLine("Found PaymentPage, calling ShowWebViewAsync");
+                
+                // Call the PaymentPage's ShowWebViewAsync method
+                var result = await currentPage.ShowWebViewAsync(confirmation);
+                
+                System.Diagnostics.Debug.WriteLine($"=== WebView completed in handler - Success: {result?.Success} ===");
+                
+                return result;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ERROR in FlittWebViewHandler: {ex.Message}");
+                return new PaymentResult 
+                { 
+                    Success = false, 
+                    Error = $"WebView handler error: {ex.Message}" 
+                };
+            }
+        }
+        
+        private PaymentPage GetCurrentPaymentPage()
+        {
+            try
+            {
+                var mainPage = Application.Current?.MainPage;
+                
+                // Check if it's directly a PaymentPage
+                if (mainPage is PaymentPage paymentPage)
+                {
+                    System.Diagnostics.Debug.WriteLine("Found PaymentPage as MainPage");
+                    return paymentPage;
+                }
+                
+                // Check if it's in a NavigationPage
+                if (mainPage is NavigationPage navPage)
+                {
+                    var currentPage = navPage.CurrentPage;
+                    if (currentPage is PaymentPage navPaymentPage)
+                    {
+                        System.Diagnostics.Debug.WriteLine("Found PaymentPage in NavigationPage");
+                        return navPaymentPage;
+                    }
+                }
+                
+                // Check if it's in a Shell
+                if (mainPage is Shell shell)
+                {
+                    var currentPage = shell.CurrentPage;
+                    if (currentPage is PaymentPage shellPaymentPage)
+                    {
+                        System.Diagnostics.Debug.WriteLine("Found PaymentPage in Shell");
+                        return shellPaymentPage;
+                    }
+                }
+                
+                System.Diagnostics.Debug.WriteLine($"Could not find PaymentPage. MainPage type: {mainPage?.GetType().Name}");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error finding PaymentPage: {ex.Message}");
+                return null;
+            }
         }
     }
 
-    // Keep existing supporting classes
+    // Keep existing supporting classes (no changes needed)
     public class PayConfirmation
     {
         public string HtmlPageContent { get; set; }

@@ -11,12 +11,13 @@ using System;
 using System.Threading.Tasks;
 using TestApp.Services;
 using Exception = System.Exception;
+
 namespace TestApp.Services
 {
     public class GooglePayService : Java.Lang.Object, IOnCompleteListener
     {
         private const int GOOGLE_PAY_REQUEST_CODE = 999;
-        
+
         private PaymentsClient _paymentsClient;
         private Activity _activity;
         private TaskCompletionSource<GooglePayResult> _paymentTaskCompletionSource;
@@ -32,8 +33,8 @@ namespace TestApp.Services
 
         private void InitializeGooglePay(string environment = "TEST")
         {
-            var walletEnvironment = environment == "PRODUCTION" 
-                ? WalletConstants.EnvironmentProduction 
+            var walletEnvironment = environment == "PRODUCTION"
+                ? WalletConstants.EnvironmentProduction
                 : WalletConstants.EnvironmentTest;
 
             var walletOptions = new WalletClass.WalletOptions.Builder()
@@ -41,7 +42,7 @@ namespace TestApp.Services
                 .Build();
 
             _paymentsClient = WalletClass.GetPaymentsClient(_activity, walletOptions);
-            
+
             System.Diagnostics.Debug.WriteLine($"Initialized Google Pay with environment: {environment}");
         }
 
@@ -57,7 +58,7 @@ namespace TestApp.Services
 
                 var request = GetIsReadyToPayRequest();
                 var task = _paymentsClient.IsReadyToPay(request);
-                
+
                 var tcs = new TaskCompletionSource<bool>();
                 task.AddOnCompleteListener(new OnCompleteListener<Java.Lang.Boolean>((result) =>
                 {
@@ -71,7 +72,7 @@ namespace TestApp.Services
                         tcs.SetResult(false);
                     }
                 }));
-                
+
                 return await tcs.Task;
             }
             catch (Exception ex)
@@ -81,44 +82,90 @@ namespace TestApp.Services
             }
         }
 
-        // Proper token-based Google Pay initialization
+        // NEW: Order-based Google Pay initialization (like Java SDK)
+        public async Task<GooglePayResult> InitializeGooglePayAsync(Order order)
+        {
+            try
+            {
+                var config = await _flittService.GetGooglePayConfigAsync(order);
+
+                var configData = JObject.Parse(config.GooglePayData);
+                var environment = configData["environment"]?.ToString() ?? "TEST";
+
+                InitializeGooglePay(environment);
+
+                _paymentTaskCompletionSource = new TaskCompletionSource<GooglePayResult>();
+
+                // Store the call info for processing the result
+                _currentGooglePayCall = new FlittGooglePayCall
+                {
+                    Token = config.Token,
+                    PaymentSystem = config.PaymentSystem,
+                    CallbackUrl = config.CallbackUrl,
+                    Order = order // Store the order for reference
+                };
+
+                // Step 6: Create PaymentDataRequest from Flitt config
+                var request = PaymentDataRequest.FromJson(config.GooglePayData);
+
+                // Step 7: Launch Google Pay
+                var task = _paymentsClient.LoadPaymentData(request);
+                AutoResolveHelper.ResolveTask(task, _activity, GOOGLE_PAY_REQUEST_CODE);
+
+                return await _paymentTaskCompletionSource.Task;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"InitializeGooglePay from order Error: {ex.Message}");
+                return new GooglePayResult { Success = false, Error = ex.Message };
+            }
+        }
+
+        // NEW: Create order token
+        public async Task<string> CreateOrderTokenAsync(Order order)
+        {
+            return await _flittService.CreateOrderTokenAsync(order);
+        }
+
+        // Original token-based Google Pay initialization
         public async Task<GooglePayResult> InitializeGooglePayFromTokenAsync(string token)
         {
             try
             {
                 System.Diagnostics.Debug.WriteLine($"Initializing Google Pay from token: {token}");
-                
+
                 // Step 1: Get Google Pay configuration from Flitt API
                 var config = await _flittService.GetGooglePayConfigAsync(token);
-                
+
                 // Step 2: Parse environment from config
                 var configData = JObject.Parse(config.GooglePayData);
                 var environment = configData["environment"]?.ToString() ?? "TEST";
-                
+
                 System.Diagnostics.Debug.WriteLine($"Google Pay environment: {environment}");
                 System.Diagnostics.Debug.WriteLine($"Google Pay config: {config.GooglePayData}");
-                
+
                 // Step 3: Initialize Google Pay with correct environment
                 InitializeGooglePay(environment);
-                
+
                 // Step 4: Setup payment task
                 _paymentTaskCompletionSource = new TaskCompletionSource<GooglePayResult>();
-                
+
                 // Store the call info for processing the result
                 _currentGooglePayCall = new FlittGooglePayCall
                 {
                     Token = token,
                     PaymentSystem = config.PaymentSystem,
-                    CallbackUrl = config.CallbackUrl
+                    CallbackUrl = config.CallbackUrl,
+                    Order = null // No order for token-based flow
                 };
 
                 // Step 5: Create PaymentDataRequest from Flitt config
                 var request = PaymentDataRequest.FromJson(config.GooglePayData);
-                
+
                 // Step 6: Launch Google Pay
                 var task = _paymentsClient.LoadPaymentData(request);
                 AutoResolveHelper.ResolveTask(task, _activity, GOOGLE_PAY_REQUEST_CODE);
-                
+
                 return await _paymentTaskCompletionSource.Task;
             }
             catch (Exception ex)
@@ -127,55 +174,6 @@ namespace TestApp.Services
                 return new GooglePayResult { Success = false, Error = ex.Message };
             }
         }
-
-        // // Flitt URL method (unchanged)
-        // public async Task<GooglePayResult> LaunchFromFlittUrlAsync(string flittUrl)
-        // {
-        //     try
-        //     {
-        //         var uri = Android.Net.Uri.Parse(flittUrl);
-        //         var jsonEncoded = uri.EncodedFragment;
-        //         
-        //         if (!string.IsNullOrEmpty(jsonEncoded) && jsonEncoded.StartsWith("__WA__="))
-        //         {
-        //             jsonEncoded = jsonEncoded.Substring("__WA__=".Length);
-        //         }
-        //         else
-        //         {
-        //             return new GooglePayResult { Success = false, Error = "Payment fragment not found in URL" };
-        //         }
-        //
-        //         if (string.IsNullOrWhiteSpace(jsonEncoded))
-        //         {
-        //             return new GooglePayResult { Success = false, Error = "Flitt URL does not contain payment data" };
-        //         }
-        //
-        //         var decodedJson = Java.Net.URLDecoder.Decode(jsonEncoded, "UTF-8");
-        //         
-        //         // Parse environment from Flitt data
-        //         var flittData = JObject.Parse(decodedJson);
-        //         var args = flittData["args"] as JObject;
-        //         var environment = args?["environment"]?.ToString() ?? "TEST";
-        //         
-        //         // Initialize Google Pay with correct environment
-        //         InitializeGooglePay(environment);
-        //         
-        //         var request = PaymentDataRequest.FromJson(decodedJson);
-        //         
-        //         _paymentTaskCompletionSource = new TaskCompletionSource<GooglePayResult>();
-        //         _currentGooglePayCall = null; // Direct JSON processing
-        //         
-        //         var task = _paymentsClient.LoadPaymentData(request);
-        //         AutoResolveHelper.ResolveTask(task, _activity, GOOGLE_PAY_REQUEST_CODE);
-        //         
-        //         return await _paymentTaskCompletionSource.Task;
-        //     }
-        //     catch (Exception ex)
-        //     {
-        //         System.Diagnostics.Debug.WriteLine($"LaunchFromFlittUrl Error: {ex.Message}");
-        //         return new GooglePayResult { Success = false, Error = ex.Message };
-        //     }
-        // }
 
         private IsReadyToPayRequest GetIsReadyToPayRequest()
         {
@@ -193,9 +191,9 @@ namespace TestApp.Services
                 {
                     var paymentData = PaymentData.GetFromIntent(data);
                     var paymentToken = paymentData.ToJson();
-                    
+
                     System.Diagnostics.Debug.WriteLine($"Google Pay Success - Payment Data: {paymentToken}");
-                    
+
                     // If we have a current Google Pay call, process it through Flitt
                     if (_currentGooglePayCall != null)
                     {
@@ -210,32 +208,33 @@ namespace TestApp.Services
                                 {
                                     var error = task.Exception?.GetBaseException().Message ?? "Unknown error";
                                     System.Diagnostics.Debug.WriteLine($"Flitt processing error: {error}");
-                                    _paymentTaskCompletionSource?.SetResult(new GooglePayResult 
-                                    { 
-                                        Success = false, 
+                                    _paymentTaskCompletionSource?.SetResult(new GooglePayResult
+                                    {
+                                        Success = false,
                                         Error = error
                                     });
                                 }
+
                                 _currentGooglePayCall = null;
                             });
                     }
                     else
                     {
                         // Direct payment without Flitt processing
-                        _paymentTaskCompletionSource?.SetResult(new GooglePayResult 
-                        { 
-                            Success = true, 
-                            PaymentData = paymentToken 
+                        _paymentTaskCompletionSource?.SetResult(new GooglePayResult
+                        {
+                            Success = true,
+                            PaymentData = paymentToken
                         });
                     }
                 }
                 else if (resultCode == Result.Canceled)
                 {
                     System.Diagnostics.Debug.WriteLine("Google Pay Cancelled by user");
-                    _paymentTaskCompletionSource?.SetResult(new GooglePayResult 
-                    { 
-                        Success = false, 
-                        Error = "Payment cancelled by user" 
+                    _paymentTaskCompletionSource?.SetResult(new GooglePayResult
+                    {
+                        Success = false,
+                        Error = "Payment cancelled by user"
                     });
                 }
                 else
@@ -243,27 +242,29 @@ namespace TestApp.Services
                     var status = AutoResolveHelper.GetStatusFromIntent(data);
                     var error = $"Payment failed: {status?.StatusMessage}";
                     System.Diagnostics.Debug.WriteLine($"Google Pay Error: {error}");
-                    _paymentTaskCompletionSource?.SetResult(new GooglePayResult 
-                    { 
-                        Success = false, 
+                    _paymentTaskCompletionSource?.SetResult(new GooglePayResult
+                    {
+                        Success = false,
                         Error = error
                     });
                 }
             }
         }
 
-        private async Task<GooglePayResult> ProcessGooglePayThroughFlitt(FlittGooglePayCall googlePayCall, string paymentData)
+        private async Task<GooglePayResult> ProcessGooglePayThroughFlitt(FlittGooglePayCall googlePayCall,
+            string paymentData)
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine($"Processing payment through Flitt - Token: {googlePayCall.Token}, PaymentSystem: {googlePayCall.PaymentSystem}");
-                
-                var receipt = await _flittService.ProcessGooglePaymentAsync(
-                    googlePayCall.Token, 
-                    googlePayCall.PaymentSystem, 
+                System.Diagnostics.Debug.WriteLine(
+                    $"Processing payment through Flitt - Token: {googlePayCall.Token}, PaymentSystem: {googlePayCall.PaymentSystem}");
+
+                Receipt receipt = await _flittService.ProcessGooglePaymentAsync(
+                    googlePayCall.Token,
+                    googlePayCall.PaymentSystem,
                     paymentData);
 
-                System.Diagnostics.Debug.WriteLine($"Flitt processing successful - Receipt: {receipt.PaymentId}");
+                // Use order-based or token-based processing depending on what we have
 
                 return new GooglePayResult
                 {
@@ -306,6 +307,15 @@ namespace TestApp.Services
         {
             _onComplete?.Invoke(task);
         }
+    }
+
+    // Updated FlittGooglePayCall to include Order
+    public class FlittGooglePayCall
+    {
+        public string Token { get; set; }
+        public string PaymentSystem { get; set; }
+        public string CallbackUrl { get; set; }
+        public Order Order { get; set; } // NEW: Optional order reference
     }
 }
 #endif
